@@ -1,0 +1,177 @@
+Here are some estimated values for the arguments:
+
+    Population of manhattan:
+        1.645 million assuming we can get 5% of them to use our app
+        that's 82250
+    Population of NYU:
+        50027 again 5% ==> 2501
+    Area of manhattan:
+        22.82 mi^2
+    Distance between ATMs:
+        (Roughly) 0.1 mi
+
+
+Here are some of the decisions on the values for all constants in simulation:
+    * STRONG_TIE_PROBABILITY = 1e-7
+        The probability that any 2 user has a strong tie to each other (friends)
+        Using Facebook to find a good estimate:
+        Median for the number of friends on Facebook is: 200
+        Number of active users on Facebook is around 2000
+
+        We can calculate the probability that 2 randomly selected people are friends:
+        total number of friendship(bi-directional) = 200 * 2000 million / 2 = 200,000 million
+        probability = 200,000 million/ (2000 million choose 2) = 1e-7
+
+
+
+    * STRONG_TIE_SUCCESS_RATE = 0.678
+    * WEAK_TIE_SUCCESS_RATE = 0.400
+    * NO_TIE_SUCCESS_RATE = 0.059
+        These are derived from our experiments
+
+
+User class:
+    Each user has the following attributes:
+    * confidence
+        confidence denotes the use rate of our app.
+        If confidence is low, user will be unlikely to use our app when he/she needs cash,
+            and will unlikely respond to other's request for cash
+        Confidence increases by 1 every time user is engaged in a successful transaction
+        Confidence decreases by 1 every time user requests cash but did not successfully get cash from another user
+        Confidence decreases by 50% every time user encounters a mutant (explained later)
+    * success_transaction
+        success_transactions is a counter that counts the number of successful transactions this user has been involved in.
+        User with high success_transactions value inspires more trust and increases his/her chance of completing more transactions
+        How success_transactions value is used is described in the "transaction_accepted()" section
+        A user that is a mutant will never have a success_transactions > 0 b/c mutant always cheats and will always be reported
+        When a mutant is reported, his success_transactions is set to 0 (simulating accnt being deleted and mutant creates new accnt)
+    * is_mutant
+        *** The simulation currently does not create any mutants. This is an outline on how it could potentially be implemented
+        If a user is mutant, he/she will always accept transactions when asked, and will always cheat
+        When a mutant cheats, he is reported and his success_transactions is set to 0 (see 'success_transactions' section)
+        The user being cheated will decrease his/her confidence by 50% (see 'confidence' section)
+    * org
+        *** The simulation currently assumes only 1 organization exists
+        org denotes the organization this user belongs to
+        It is either a String or None
+        If two users both have None, they do NOT belong in the same organization
+        Transactions probability between 2 users in the same organization is much higher than different org, or no org
+    * lon, lat
+        lon, lat denotes the longitude and latitude of the user
+        user's location is randomly assigned between 0 and sqrt(AREA) on every iteration
+    * distance_to_requester
+        distance_to_requester is calculated every iteration to determine if the requester will make a request to this user.
+        If distance_to_requester is greater than AVG_DISTANCE_BETWEEN_ATMS then requester will prefer going to an ATM over to this user.
+        This is calculated as the linear distance between user and requester
+
+    Each User has the following methods:
+    * additive_decrease_confidence(self)
+        Decreases user's confidence by 1 but do not go below 0
+        When confidence is 0, user will never use the app, and hence will never regain confidence
+    * successful_transaction(self)
+        Increases users success_transaction
+    * multiplicity_decrease_confidence(self)
+        Decrease user's confidence by 1/2
+    * set_location(self, latitude, longitude)
+        sets the user's lat, lon
+    * get_location(self)
+        returns user's (lat, lon)
+    * set_distance_to_requester(self, distance)
+        sets user's distance to requester
+    * get_distance_to_requester(self)
+        returns distance to requester
+
+Functions:
+
+    distance(u1, u2)
+        Simply returns the distance between u1 and u2
+
+    same_org(u1, u2)
+        returns True if u1 and u2 are in the same organization
+        else return False
+
+    assignLocations(requester)
+        randomly assign locations (longitude, latitude) to all users except requester
+        requester already has a location
+        returns a list of users whose distance to requester is < AVG_DISTANCE_BETWEEN_ATMS
+
+    transaction_accepted(requester, requestee)
+        returns True if transaction occurs and False if not
+        First it checks if requestee is mutant, if yes, return True (see 'is_mutant' section)
+        Second, check if requestee is using/responding to the app, this depends on their confidence in the app (see 'confidence' section)
+        Third, calculate the probability that requester and requestee are friends:
+            If they are then return 1 (True) with the probability of STRONG_TIE_PROBABILITY
+            Return 0 (False) with the probability of 1 - STRONG_TIE_PROBABILITY
+            Assumption:
+                If requester and requestee are friends, they do not care about each other's success_transactions value because they trust each other
+
+        Fourth, check if requester and requestee are in the same organization:
+            If they are, calculate the agree_rate
+            agree_rate initially equals WEAK_TIE_PROBABILITY
+            agree_rate takes into account of each other's success_transactions values
+            Each success_transactions (by either user) increases agree rate by 0.01
+            Assumption:
+                There's no particular reason why success_transactions value is given this weight. Simply a naive way to account for it.
+            Return 1 (True) with the probability of agree_rate
+            Return 0 (False) with the probability of 1 - agree_rate
+
+        Finally, requester and requestee are complete strangers
+            agree_rate initially equals NO_TIE_PROBABILITY
+            agree_rate takes into account of each other's success_transactions values
+            Each success_transactions (by either user) increases agree rate by 0.01
+            Assumption:
+                There's no particular reason why success_transactions value is given this weight. Simply a naive way to account for it.
+            Return 1 (True) with the probability of agree_rate
+            Return 0 (False) with the probability of 1 - agree_rate
+
+
+Main Loop:
+
+    On every iteration, a random user is picked as the requester.
+    Based on the requester's confidence, determine if requester tries to get cash with the app (ie. makes a request)
+    If requester does not make a request:
+        Log and continue to the next iteration
+    Else
+        Give requester a location (lon, lat)
+        Give all users a random location
+        users_in_range is set to all users that are close to requester
+            (distance between requester and user is less than AVG_DISTANCE_BETWEEN_ATMS)
+        Sort users_in_range by distance_to_requester
+        Iterate over each user in users_in_range
+            Call transaction_accepted(requester, current user)
+            If transaction_accepted returns False
+                Simply continue to the next iteration
+            If transaction_accepted returns True
+                Check for mutants:
+                    if both requester and current user are mutants:
+                        set both of their success_transactions to 0
+                    if exactly one of them is mutant:
+                        set the mutant's success_transactions to 0
+                        and decrease the other's confidence by half
+                    if neither are mutants:
+                        increase both users' success_transactions by 1
+
+                Regardless of mutants, transaction is complete. Breaks out of (inner) loop
+
+        If by the end of the (inner) loop transaction_accepted never returned True:
+            Requester was unable to get cash from the app.
+            Decrease the requester's confidence by 1.
+            Log the result.
+
+Finally, print the rate of transactions performed
+
+
+Goal:
+    Without mutants:
+        The goal of this simulation is to see if over time, will user's confidence converge to 0 and activities completely dies off.
+    With mutants:
+        How many mutants can the system tolerate without converging regular user's confidence to 0
+
+    As number of iterations increases, does the rate of transactions performed decrease to 0
+
+
+Disclaimer:
+    This is the initial draft of the simulation, many assumptions were made.
+    These assumptions(hypothesis) needs to be verified in order for the result of this simulation to be meaningful and accurate.
+
+
